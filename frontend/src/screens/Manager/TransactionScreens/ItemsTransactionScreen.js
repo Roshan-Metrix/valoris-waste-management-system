@@ -18,6 +18,7 @@ import Alert from "../../../Components/Alert";
 import useImagePreview from "../../../lib/useImagePreview";
 import { AuthContext } from "../../../context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { File } from "expo-file-system";
 
 export default function ItemsTransactionScreen({ navigation, route }) {
   const { transactionId } = route.params || {};
@@ -213,98 +214,109 @@ export default function ItemsTransactionScreen({ navigation, route }) {
     }
   };
 
-  const handleAddItem = async () => {
-    if (!token) {
-      setAlertMessage("Please login again.");
+const handleAddItem = async () => {
+  if (loading) return;
+
+  if (!token) {
+    setAlertMessage("Please login again.");
+    setAlertVisible(true);
+    return;
+  }
+
+  if (!materialType) {
+    setAlertMessage("Please select material type!");
+    setAlertVisible(true);
+    return;
+  }
+
+  if (!photo?.uri) {
+    setAlertMessage("Please capture an image first!");
+    setAlertVisible(true);
+    return;
+  }
+
+  let weight = "";
+  let weightSource = "";
+
+  if (enterWeight.trim() !== "") {
+    weight = enterWeight.trim();
+    weightSource = "manually";
+  }
+
+  if (!weight) {
+    setAlertMessage("No weight detected or entered.");
+    setAlertVisible(true);
+    return;
+  }
+
+  try {
+    setLoading(true);
+
+    const resolvedTransactionId = resolveTransactionId();
+
+    if (!resolvedTransactionId) {
+      setAlertMessage("Please create or fetch a transaction first!");
       setAlertVisible(true);
       return;
     }
 
-    if (!materialType) {
-      setAlertMessage("Please select material type!");
-      setAlertVisible(true);
-      return;
-    }
+    const formData = new FormData();
 
-    if (!photo) {
-      setAlertMessage("Please capture an image first!");
-      setAlertVisible(true);
-      return;
-    }
+    // Expo SDK 57 compatible image upload
+    const imageFile = new File(photo.uri);
 
-    let weight = "";
-    let weightSource = "";
+    formData.append(
+      "image",
+      imageFile,
+      `item-${Date.now()}.jpg`
+    );
 
-    if (enterWeight.trim() !== "") {
-      weight = enterWeight.trim();
-      weightSource = "manually";
-    }
+    // Existing backend fields
+    formData.append("materialType", materialType);
+    formData.append("materialRate", String(materialRate));
+    formData.append("weight", String(weight));
+    formData.append("weightSource", weightSource);
 
-    if (!weight) {
-      setAlertMessage("No weight detected or entered.");
-      setAlertVisible(true);
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      const resolvedTransactionId = resolveTransactionId();
-
-      if (!resolvedTransactionId) {
-        setAlertMessage("Please create or fetch a transaction first!");
-        setAlertVisible(true);
-        return;
-      }
-
-      const formData = new FormData();
-
-      formData.append("image", {
-        uri: photo.uri,
-        name: `item-${Date.now()}.jpg`,
-        type: "image/jpeg",
-      });
-
-      formData.append("materialType", materialType);
-      formData.append("materialRate", String(materialRate));
-      formData.append("weight", String(weight));
-      formData.append("weightSource", weightSource);
-
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_BACKEND_URL}/transaction/transaction-items/${resolvedTransactionId}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
+    const response = await fetch(
+      `${process.env.EXPO_PUBLIC_BACKEND_URL}/transaction/transaction-items/${resolvedTransactionId}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
-
-      const res = await response.json();
-
-      if (response.ok && res.success) {
-        setPhoto(null);
-        setMaterialType("");
-        setMaterialRate("");
-        setEnterWeight("");
-
-        await fetchAllItems();
-
-        showSuccessToast();
-      } else {
-        setAlertMessage(res.message || "Item not added.");
-        setAlertVisible(true);
+        body: formData,
       }
-    } catch (err) {
-      console.log("ADD ITEM ERROR:", err);
+    );
 
-      setAlertMessage(err.message || "Something went wrong!");
+    const res = await response.json();
+
+    console.log("Add Item Response:", res);
+
+    if (response.ok && res.success) {
+      setPhoto(null);
+      setMaterialType("");
+      setMaterialRate("");
+      setEnterWeight("");
+
+      await fetchAllItems();
+
+      showSuccessToast();
+    } else {
+      setAlertMessage(res.message || "Item not added.");
       setAlertVisible(true);
-    } finally {
-      setLoading(false);
     }
-  };
+
+  } catch (err) {
+    console.log("ADD ITEM ERROR:", err);
+
+    setAlertMessage(err.message || "Something went wrong!");
+    setAlertVisible(true);
+
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   useFocusEffect(
     React.useCallback(() => {
